@@ -2,7 +2,7 @@
 
 let fs = require('fs');
 
-if(!fs.existsSync('cookies'))
+if (!fs.existsSync('cookies'))
     fs.mkdirSync('cookies');
 
 let Client    = require('instagram-private-api').V1
@@ -15,12 +15,11 @@ let Client    = require('instagram-private-api').V1
 function initClient(username, password) {
 
     return new Promise ((res, err) => {
-        Client.Session.create(device, storage, username, password)
-            .then(sesh => {
-                session = sesh;
-                res();
-            })
-            .catch(err);
+        Client.Session.create(device, storage, username, password).then(sesh => {
+            console.log('Session initialized');
+            session = sesh;
+            res();
+        }, err);
     });
 }
 
@@ -28,39 +27,56 @@ function initClient(username, password) {
 //returns a promise resolved with the profile info
 function scrapeProfile(handle, followerCap) {
 
-    return new Promise ((resolve, err) => {
+    return new Promise ((res, err) => {
         if (!session) err('Client not initialized');
 
-        let info = { handle: handle, followers: [] };
-        
         Client.Account.searchForUser(session, handle).then(user => {
+            console.log(handle + '\'s User ID: ' + user.id);
 
             let feed = new Client.Feed.AccountFollowers(session, user.id);
+            feed.map = cur => {
+                return {
+                    handle: cur._params.username,
+                    igId: cur.id,
+                    name: cur._params.fullName,
+                    private: cur._params.isPrivate,
+                    verified: cur._params.isVerified,
+                };
+            };
+            //feed.reduce to only store the good ones
 
-            Client.Account.getById(session, user.id).then(data => {
-                data = data.params;
-            
-                info.followerNum = data.followerCount;
-                info.bio = data.biography;
-                info.verified = data.isVerified;
-                info.isBusiness = data.isBusiness;
-                info.externalUrl = data.externalUrl;
-                info.profilePic = data.profilePicUrl;
-                info.followingNum = data.followingCount;
-                info.igId = user.id;
-                info.name = data.fullName;
-                info.email = data.publicEmail;
-                info.publicPhone = data.publicPhoneNumber;
-                info.contactPhone = data.contactPhoneNumber;
-
-                //also doesn't scroll if no cap is provided
-                if (info.followerNum <= followerCap)
-                    scroll(resolve, err, feed, info);
-                else {
-                    info.followers = '>' + followerCap;
-                    resolve(info);
-                }
-
+            Promise.all([feed.all({ delay: 100, every: 200, pause: 30000, maxErrors: 9, limit: 30000 }),
+                Client.Account.getById(session, user.id).then(data => {
+                    data = data.params;
+                    console.log(handle + ' Has ' + data.followerCount + ' Followers');
+                    
+                    return {
+                        handle,
+                        followerNum: data.followerCount,
+                        bio: data.biography,
+                        verified: data.isVerified,
+                        isBusiness: data.isBusiness,
+                        externalUrl: data.externalUrl,
+                        profilePic: data.profilePicUrl,
+                        followingNum: data.followingCount,
+                        igId: user.id,
+                        name: data.fullName,
+                        email: data.publicEmail,
+                        publicPhone: data.publicPhoneNumber,
+                        contactPhone: data.contactPhoneNumber
+                    };
+                    //also doesn't scroll if no cap is provided
+                    // if (info.followerNum <= followerCap)
+                    //     scroll(resolve, err, feed, info);
+                    // else {
+                    //     info.followers = '>' + followerCap;
+                    //     resolve();
+                    // }
+    
+                }, err)
+            ]).then(arr => {
+                arr[1].followers = arr[0];
+                res(arr[1]);
             }, err);
     
         }, err);
@@ -70,6 +86,8 @@ function scrapeProfile(handle, followerCap) {
 
 //recursively load followers into info, resolving promise upon completion
 function scroll(resolve, err, feed, info) {
+
+    console.log('Have Loaded: ' + info.followers.length);
 
     feed.get().then(followers => {
 
@@ -89,14 +107,14 @@ function scroll(resolve, err, feed, info) {
         else {
 
             if (info.followers.length !== info.followerNum)
-                console.log('You\'re blocked my guy');
+                console.log('Loaded ' + info.followers.length + ' of ' + info.followerNum + ' followers');
 
             resolve(info);
         }
 
-
     }, err);
 }
         
-
-initClient('bafdf', 'adfadf').then(() => scrapeProfile('asdfd', 30000)).then(console.log, console.log);
+initClient('benorgera', 'Benjaminso12!').then(() => scrapeProfile('benorgera', 30000), console.log).then((info) => {
+    console.log(info);
+}, console.log);
