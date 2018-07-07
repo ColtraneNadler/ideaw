@@ -85,36 +85,36 @@ function scrapeProfile(handle, followerCap) {
 }
 
 //recursively load followers into info, resolving promise upon completion
-function scroll(resolve, err, feed, info) {
+// function scroll(resolve, err, feed, info) {
 
-    console.log('Have Loaded: ' + info.followers.length);
+//     console.log('Have Loaded: ' + info.followers.length);
 
-    feed.get().then(followers => {
+//     feed.get().then(followers => {
 
-        for (var i = 0; i < followers.length; i++) {
-            let cur = followers[i]._params;
-            info.followers.push({
-                handle: cur.username,
-                igId: cur.id,
-                name: cur.fullName,
-                private: cur.isPrivate,
-                verified: cur.isVerified,
-            });
-        }
+//         for (var i = 0; i < followers.length; i++) {
+//             let cur = followers[i]._params;
+//             info.followers.push({
+//                 handle: cur.username,
+//                 igId: cur.id,
+//                 name: cur.fullName,
+//                 private: cur.isPrivate,
+//                 verified: cur.isVerified,
+//             });
+//         }
 
-        if (feed.moreAvailable)
-            scroll(resolve, err, feed, info);
-        else {
+//         if (feed.moreAvailable)
+//             scroll(resolve, err, feed, info);
+//         else {
 
-            if (info.followers.length !== info.followerNum)
-                console.log('Loaded ' + info.followers.length + ' of ' + info.followerNum + ' followers');
+//             if (info.followers.length !== info.followerNum)
+//                 console.log('Loaded ' + info.followers.length + ' of ' + info.followerNum + ' followers');
 
-            resolve(info);
-        }
+//             resolve(info);
+//         }
 
-    }, err);
-}
+//     }, err);
+// }
         
-initClient('benorgera', 'Benjaminso12!').then(() => scrapeProfile('benorgera', 30000), console.log).then((info) => {
+initClient('benorgera', '****').then(() => scrapeProfile('benorgera', 30000), console.log).then((info) => {
     console.log(info);
 }, console.log);
