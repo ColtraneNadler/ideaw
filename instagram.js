@@ -174,7 +174,7 @@ function availableClients() {
 }
 
 //destructive to original array, like array map
-function idsToAccounts(arrContainingIds) {
+function idsToAccounts(arrContainingIds, elemToId) {
     return new Promise((res, err) => {
         var curIndex = [0],
             len = arrContainingIds.length;
@@ -183,7 +183,7 @@ function idsToAccounts(arrContainingIds) {
             var nextIndex = curIndex[0];
             if (curIndex[0] < len) {
                 curIndex[0] = nextIndex + 1;
-                var id = arrContainingIds[nextIndex].igId;
+                var id = elemToId(arrContainingIds[nextIndex]);
                 console.log('Getting Profile With Id: ' + id);
                 getProfileById(id, client.session).then(profile => {
                     arrContainingIds[nextIndex] = profile;
@@ -207,7 +207,7 @@ function idsToAccounts(arrContainingIds) {
     });
 }
         
-addClient('benorgera', 'Benjaminso12!', 'chrome')
+addClient('benorgera', '****', 'chrome')
     .then(() => getProfileByHandle('benorgera', 30000), console.log)
-    .then(profile => { console.log(profile); return idsToAccounts(profile.followers); }, console.log)
+    .then(profile => { console.log(profile); return idsToAccounts(profile.followers, elem => elem.igId); }, console.log)
     .then(console.log);
