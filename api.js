@@ -2,11 +2,11 @@
 
 const sc 		= require('./soundcloud')
 	, ig 		= require('./instagram')
-	, Profile 	= require('./models/Profile');
+	, Profile 	= require('./models/Profile')
+	, SoundCloud = require('./models/SoundCloud')
+	, SoundCloudSnapshot = require('./models/SoundCloudSnapshot');
 
 let mongoose 	= require('mongoose');
-
-// require('./commands').init();
 
 mongoose.connect('mongodb://cole:test123@ds129560.mlab.com:29560/clouthack', err => {
 	if(err)
@@ -55,6 +55,70 @@ let scrape = (soundcloudID, link) => {
 			else
 				console.log('Done scraping.');
 		})
+	})
+}
+
+let profile = scProfile => {
+	// update / check soundcloud
+	SoundCloud.findOne({_id: scProfile.id}, (err, soundcloud) => {
+		if(err) return console.log(err);
+
+		if(!soundcloud)
+			soundcloud = new SoundCloud();
+
+		sc.getTracks(scProfile.id, tracks => {
+			let totalStreams = 0
+				, force = false
+				, genres = [];
+
+			if(!(scProfile.track_count > 0 && tracks.length === 0)) {
+				for(let j = 0; j < tracks.length; j++) {
+					totalStreams += tracks[j].playback_count;
+
+					// if at least one of the tracks has over 1k streams force profile
+					if(tracks[j].playback_count > 5000)
+						force = true;
+
+					if(!tracks[j].genre)
+						continue;
+
+					// check genres
+					for(prop in genresTable)
+						if(genresTable[prop].test(tracks[j].genre.toLowerCase()) && !(genres.indexOf(prop) > -1))
+							genres.push(prop);
+
+				}
+
+				if(!force && totalStreams / tracks.length < 1000)
+					return;
+			}
+
+			soundcloud._id = scProfile.id;
+			soundcloud.avatarUrl = scProfile.avatur_url;
+			soundcloud.permalink = scProfile.permalink;
+			soundcloud.username = scProfile.username;
+			soundcloud.trackCount = scProfile.track_count;
+			soundcloud.country = scProfile.country;
+			soundcloud.name = scProfile.full_name; // full_name
+			soundcloud.city = scProfile.city;
+			soundcloud.description = scProfile.description;
+			soundcloud.genres = genres;
+
+			soundcloud.save(err => { if(err) console.log(err) });
+
+			let newSnapshot = new SoundCloudSnapshot();
+			
+			newSnapshot.followers = scProfile.followers_count;
+			newSnapshot.following = scProfile.following_count;
+			newSnapshot.trackCount = scProfile.track_count;
+			newSnapshot.totalStreams = totalStreams;
+
+			newSnapshot.save(err => { if(err) console.log(err) });
+	})
+
+	// async do profile check
+	Profile.findOne({soundcloud: scProfile.id}, (err, profile) => {
+
 	})
 }
 
