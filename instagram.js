@@ -10,7 +10,10 @@ let Client    = require('instagram-private-api').V1
     , clients = []
     , api = {};
 
-const msPerRequestsPerClient = 100; //ms which must have passed since last request was received
+const Profile = new require('./models/Profile')()
+    , Instagram = new require('./models/Instagram')()
+    , InstagramSnapshot = require('./models/InstagramSnapshot')
+    , msPerRequestsPerClient = 300; //ms which must have passed since last request was received
 
 //returns a promise which is resolved upon init
 
@@ -23,7 +26,7 @@ api.addClient = function (username, password, deviceString, proxyURL) {
         storage = new Client.CookieFileStorage('./cookies/' + username + '_cookies.json');
 
     return Client.Session.create(device, storage, username, password, proxyURL || undefined).then(session => {
-        console.log('Client `' + username + '` Session Initialized');
+        console.log(`Client ' ${username}' Session Initialized`);
         clients.push({
             clientId: clients.length,
             device,
@@ -66,12 +69,12 @@ api.getAvailableClient = () => {
 
 api.freeClient = client => {
     client.lastRequestMs = Date.now();
-    // if (client.busy)
-        setTimeout(() => {
-            client.busy = false;
-            if (client.queue.length > 0 && typeof client.queue[0] === 'function')
-                client.queue.shift()(client);
-        }, msPerRequestsPerClient);
+
+    setTimeout(() => {
+        client.busy = false;
+        if (client.queue.length > 0 && typeof client.queue[0] === 'function')
+            client.queue.shift()(client);
+    }, msPerRequestsPerClient);
 }
 
 //if given a session, the client passed is freed
@@ -81,7 +84,7 @@ api.getProfileById = (id, cli, numFollowersToLoad) => {
     function get(client) {
         return Client.Account.getById(client.session, id).then(data => {
             data = data.params;
-            console.log(id + ' Has ' + data.followerCount + ' Followers (From Client ' + client.clientId + ')');
+            console.log(`${id} Has ${data.followerCount} Followers (From Client ${client.clientId})`);
             var res = {
                 handle: data.username,
                 followerNum: data.followerCount,
@@ -115,6 +118,7 @@ api.getProfileById = (id, cli, numFollowersToLoad) => {
 
             return api.balancedLoadFeed(feed, 10, isNaN(numFollowersToLoad) ? 30000 : numFollowersToLoad).then(arr => {
                 res.followers = arr;
+                console.log('has: ' + arr.length + ' followers');
                 return res;
             });
         });
@@ -122,12 +126,71 @@ api.getProfileById = (id, cli, numFollowersToLoad) => {
     return cli ? get(cli) : api.getAvailableClient().then(get);
 }
 
+api.getCumulativeSnapshot = profile => {
+    console.log('ohhhhh');
+    return InstagramSnapshot.find({ _id: profile._id }).exec().then(snaps => {
+        console.log('yoooooo');
+        var followers = [],
+            engagements = [],
+            followersSeen = '',
+            likesSeen = '',
+            lastSnap;
+        for (var i = 0; i < snaps.length; i++) {
+            var curEng = snaps[i].notableEngagements,
+                curFol = snaps[i].notableFollowers;
+            for (var j = 0; j < curFol.length; j++) {
+                var cur = curFol[j];
+                if (!followersSeen.includes(cur)) {
+                    followers.push(cur);
+                    followersSeen += cur;
+                }
+            }
+            for (j = 0; j < curEng.length; j++) {
+                var cur = curEng[j];
+                if (!engagementsSeen.includes(cur._id)) {
+                    engagements.push(cur);
+                    engagements += cur._id;
+                }
+            }
+            if (i === snaps.length - 1) lastSnap = snaps[i];
+        }
+
+        console.log(snaps);
+
+        if (!lastSnap)
+            return Error(`No Snapshots Stored For ${profile._id}`);
+
+        return {
+            createdAt: lastSnap.createdAt,
+            followers: lastSnap.followers,
+            averageLikes: lastSnap.averageLikes,
+            averageComments: lastSnap.averageComments,
+            notableEngagements: engagements,
+            notableFollowers: followers
+        };
+    });
+}
+
+//feedLimit is how many
+api.getSnapshot = (profile, feedLimit) => {
+    return Promise.all([api.getAvailableClient(), api.getCumulativeSnapshot(profile)]).then(data => {
+        console.log('data', data);
+        var [ client, snap ] = data,
+            feed = Client.Feed.UserMedia.get(client.session, profile._id, 10);
+        return feed.get().then(media => {
+            for (var i = 0; i < media.length && i < 10; i++) {
+                console.log(media[i]);
+            }
+        });
+    });
+}
+
 //returns a promise resolved with the profile info, including the followers
 api.getProfileByHandle = (handle, numFollowersToLoad) => {
 
     return api.getAvailableClient().then(client => {
         return Client.Account.searchForUser(client.session, handle).then(user => {
-            console.log(handle + '\'s User ID: ' + user.id);
+            console.log(`${handle}'s User ID: ${user.id}`);
     
             api.freeClient(client);
             return api.getProfileById(user.id, client, numFollowersToLoad);
@@ -142,7 +205,7 @@ api.balancedLoadFeed = (feed, maxErrors, maxLength) => {
 
         //recursively load followers into info, resolving promise upon completion
         (function scroll() {
-            console.log('Have Loaded: ' + feedArr.length + ' Elements Of Feed');
+            console.log(`Have Loaded ${feedArr.length} Elements Of Feed`);
 
             api.getAvailableClient().then(client => {
                 console.log(`Using Client ${client.clientId}`);
@@ -164,7 +227,7 @@ api.balancedLoadFeed = (feed, maxErrors, maxLength) => {
                         if (!client.busy) client.busy = true;
                         scroll();
                     } else {
-                        console.log('Loaded ' + feedArr.length + ' Elements Of Feed');
+                        console.log(`Loaded ${feedArr.length} Elements Of Feed`);
                         res(feedArr);
                     }
                 }, (error) => {
@@ -184,7 +247,7 @@ api.balancedLoadFeed = (feed, maxErrors, maxLength) => {
 }
 
 //destructive to original array, like array map
-api.mapIdsToAccounts = (arrContainingIds, elemToId, maxErrors) => {
+api.mapIdsToAccounts = (arrContainingIds, elemToId, maxErrors, maxLength) => {
     return new Promise((res, err) => {
         var curIndex = { val: 0 },
             len = arrContainingIds.length,
@@ -192,10 +255,10 @@ api.mapIdsToAccounts = (arrContainingIds, elemToId, maxErrors) => {
     
         function onAvailableClient(client) {
             var nextIndex = curIndex.val;
-            if (nextIndex < len) {
+            if (nextIndex < len && nextIndex < maxLength) {
                 curIndex.val = nextIndex + 1;
                 var id = elemToId(arrContainingIds[nextIndex]);
-                console.log('Getting Profile With Id: ' + id);
+                console.log(`Getting Profile With Id: ${id}`);
                 api.getProfileById(id, client).then(profile => {
                     arrContainingIds[nextIndex] = profile;
                     api.freeClient(client);
@@ -205,14 +268,14 @@ api.mapIdsToAccounts = (arrContainingIds, elemToId, maxErrors) => {
                     errors++;
                     if (error.message)
                         console.log(`Error #${errors} Getting Feed: ${error.message}`);
-                    if (errors <= maxErrors) {
+                    if (errors <= maxErrors && curIndex.val < maxLength) {
                         client.busy = true;
                         scroll();
                     } else
                         err(error);
                 });
             } else {
-                console.log('Got ' + ++nextIndex + ' Accounts');
+                console.log(`Got ${++nextIndex} Accounts`);
                 res(arrContainingIds);
             }
         }
@@ -221,7 +284,7 @@ api.mapIdsToAccounts = (arrContainingIds, elemToId, maxErrors) => {
         for (var i = 0; i < clients.length; i++) {
             var client = clients[i];
             if (client.busy) {
-                console.log('Client ' + client.clientId + ' Is Busy');
+                console.log(`Client ${client.clientId} Is Busy`);
                 client.queue.push(onAvailableClient);
             }
             else

@@ -1,15 +1,26 @@
 let ig = require('./instagram'),
     config = require('./config');
 
-Promise.all(config.igAccounts.map(acc => ig.addClient(acc.username, acc.password, 'chrome'))).then(() => {
-	// return ig.getProfileByHandle('lildustyg').then(profile => {
-	// 	console.log(profile);
-	// 	return ig.mapIdsToAccounts(profile.followers, elem => elem._id);
-	// });
-	return scrapeHandle('lildustyg', {
-		notableFollowers: []
+function connectToMongo() {
+	return new Promise((res, err) => {
+		mongoose.connect('mongodb://cole:test123@ds129560.mlab.com:29560/clouthack', error => {
+        	if (error)
+        		return err(error);
+        
+        	res(console.log('Connected to Mongo'));
+        });
 	});
-}, console.log).then(console.log, console.log);
+}
+
+
+function startUp() {
+	return Promise.all([ connectToMongo, ...config.igAccounts.map(acc => ig.addClient(acc.username, acc.password, 'chrome')) ]);
+}
+
+startUp.then(() => {
+	
+	ig.getProfileByHandle('lildustyg', 100).then(profile => ig.getSnapshot(profile, 100));
+}, console.log);
 
 function reduceIgHistory(history1, history2) {
 	var recenter = history1.createdAt > history2.createdAt ? history1 : history2;
@@ -31,9 +42,9 @@ function scrapeHandle(handle, lastTick) {
 	    profile,
 	    newNotableFollowers = [];
 
-	return ig.getProfileByHandle(handle, 500).then(prof => {
+	return ig.getProfileByHandle(handle, 50).then(prof => {
 		profile = prof;
-		return ig.mapIdsToAccounts(profile.followers, elem => elem.igId);
+		return ig.mapIdsToAccounts(profile.followers, elem => elem._id, 10, 50);
 	}).then((followers) => {
 		for (var i = 0; i < followers.length; i++) {
 			var cur = followers[i];

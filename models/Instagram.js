@@ -20,7 +20,7 @@ let instagramSchema = new Schema({
 
 	createdAt: Number,
 	lastUpdated: Number
-})
+});
 
 instagramSchema.pre('save', function save(next) {
 	const instagram = this;
