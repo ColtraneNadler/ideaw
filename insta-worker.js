@@ -1,20 +1,17 @@
 var redis = require('redis')
   , subscriber = redis.createClient()
-  , client = redis.createClient(),
+  , client = redis.createClient()
   , API = require('instagram-private-api').V1
-  , pid //unique
   , session //ig session
   //this is a hack, need a better way to get credentials
-  , temp1 = require('./config').igAccounts,
-  , temp2 = temp1[Math.floor(Math.random()*temp1.length)]
   , mongoose = require('mongoose');
 
-temp2.device = 'chrome';
+const temp = require('./config').igAccounts
+    , settings = temp[Math.floor(Math.random()*temp.length)]
+    , pid = guid()
+    , moment = require('moment');
 
-const settings = temp2
-    , temp = require('./config').igAccounts,
-    , settings = temp[Math.floor(Math.random()*temp.length)],
-    , pid = guid();
+settings.device = 'chrome';
 
 var mongoPromise = new Promise((res, err) => {
 	mongoose.connect('mongodb://cole:test123@ds129560.mlab.com:29560/clouthack', error => {
@@ -23,16 +20,24 @@ var mongoPromise = new Promise((res, err) => {
     
     	res(console.log('Connected to Mongo'));
     });
-}), storage = new api.CookieFileStorage('./cookies/' + settings.username + '_cookies.json');
+}), storage = new API.CookieFileStorage('./cookies/' + settings.username + '_cookies.json')
+  , lastTask = +moment()
+  , interval = {}
+  , unready = () => {
+        lastTask = +moment();
+        if (interval.val) {
+            clearInterval(interval.val);
+            interval.val = undefined;
+        }
+    }
+  , ready = () => interval.val = setInterval(() => client.publish('bot:ig', `${pid}:${lastTask}`), 5000);
 
-Promise.all([API.Session.create(new api.Device(settings.device), storage, settings.username, settings.password, settings.proxyURL || undefined), mongoPromise]).then(data => {
+
+Promise.all([API.Session.create(new API.Device(settings.device), storage, settings.username, settings.password, settings.proxyURL || undefined), mongoPromise]).then(data => {
 
     session = data[0];
-    var interval = {},
-        unready = () => interval.val && clearInterval(interval.val),
-        ready = () => interval.val = setInterval(() => client.publish('ready:ig', pid), 5000);
 
-    console.log(`Client ${username} Session Initialized`);
+    console.log(`Client ${settings.username} Session Initialized`);
     subscriber.on('message', (channel, message) => {
 	    var args = message.split(':');
 	    if (args.length < 3 || args[0] !== pid)
@@ -48,10 +53,10 @@ Promise.all([API.Session.create(new api.Device(settings.device), storage, settin
                 getIdByHandle(args[2], message);
                 break;
             case 'gf':
-                getFollowers(args[2], args[3], message);
+                getFollowers(args[2], args[3] !== ' ' && args[3], message);
                 break;
             case 'gm':
-                getMedia(args[2], args[3], message);
+                getMedia(args[2], args[3] !== ' ' && args[3], message);
                 break;
         }
     });
@@ -79,7 +84,8 @@ function getProfileById(id, taskId) {
             publicPhone: data.publicPhoneNumber,
             contactPhone: data.contactPhoneNumber
         })}`);
-    }).catch(() => client.publish('data:ig', taskId));
+        ready();
+    }).catch(() => {client.publish('data:ig', taskId);ready();});
 }
 
 function getIdByHandle(handle, taskId) {
@@ -87,25 +93,24 @@ function getIdByHandle(handle, taskId) {
         const id = user.id;
         console.log(`${handle} has id ${id}`);
         client.publish('data:ig', `${taskId}::${id}`);
-    }).catch(() => client.publish('data:ig', taskId));
+        ready();
+    }).catch(() => {client.publish('data:ig', taskId);ready();});
 }
 
 function getFollowers(id, cursor, taskId) {
     const feed = new API.Feed.AccountFollowers(session, id);
-    feed.cursor = cursor;
+    if (cursor) feed.cursor = cursor;
     feed.get().then(followers => {
-        var arr = [];
-
-        for (var i = 0; i < followers.length; i++) {
-            let cur = followers[i]._params;
-            arr.push({
+        var arr = followers.map(cur => {
+            cur = cur._params;
+            return {
                 handle: cur.username,
-                igId: cur.id,
+                id: cur.id,
                 name: cur.fullName,
                 private: cur.isPrivate,
                 verified: cur.isVerified,
-            });
-        }
+            };
+        });
 
         client.publish('data:ig', `${taskId}::${JSON.stringify({
             arr,
@@ -113,15 +118,14 @@ function getFollowers(id, cursor, taskId) {
         })}`);
 
         console.log(`Loaded ${arr.length} Followers of ${id}`);
-    }).catch(() => client.publish('data:ig', taskId));
+        ready();
+    }).catch(() => {client.publish('data:ig', taskId);ready();});
 }
 
 function getMedia(id, cursor, taskId) {
     const feed = API.Feed.UserMedia.get(session, id, 10);
     feed.cursor = cursor;
-    feed.get().then(data => {
-
-    });
+    feed.get().then(data => client.publish('data:ig', `${taskId}::${JSON.stringify(data)}`));
 }
 
 function guid() {
