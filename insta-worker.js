@@ -4,7 +4,8 @@ var redis = require('redis')
   , API = require('instagram-private-api').V1
   , session //ig session
   //this is a hack, need a better way to get credentials
-  , mongoose = require('mongoose');
+  , mongoose = require('mongoose')
+  , IgCache = require('./models/IgCache');
 
 const temp = require('./config').igAccounts
     , settings = temp[Math.floor(Math.random()*temp.length)]
@@ -50,7 +51,7 @@ Promise.all([API.Session.create(new API.Device(settings.device), storage, settin
                 getProfileById(args[2], message);
                 break;
             case 'gi': //get id
-                getIdByHandle(args[2], message);
+                getProfileByHandle(args[2], message);
                 break;
             case 'gf':
                 getFollowers(args[2], args[3] !== ' ' && args[3], message);
@@ -66,35 +67,54 @@ Promise.all([API.Session.create(new API.Device(settings.device), storage, settin
 });
 
 function getProfileById(id, taskId) {
-    API.Account.getById(session, id).then(data => {
-        data = data.params;
-        console.log(`${id} Has ${data.followerCount} Followers (From Client ${client.clientId})`);
-        client.publish('data:ig', `${taskId}::${JSON.stringify({
-            handle: data.username,
-            followerNum: data.followerCount,
-            bio: data.biography,
-            verified: data.isVerified,
-            isBusiness: data.isBusiness,
-            externalUrl: data.externalUrl,
-            profilePic: data.profilePicUrl,
-            followingNum: data.followingCount,
-            _id: id,
-            name: data.fullName,
-            email: data.publicEmail,
-            publicPhone: data.publicPhoneNumber,
-            contactPhone: data.contactPhoneNumber
-        })}`);
-        ready();
-    }).catch(() => {client.publish('data:ig', taskId);ready();});
+    IgCache.findOne({
+        _id : id
+    }).exec().then(data => {
+        if (data) 
+            client.publish('data:ig', `${taskId}::${JSON.stringify(data)}`);
+        else
+            API.Account.getById(session, id).then(data => {
+                console.log(`${id} Has ${data.followerCount} Followers`);
+                var entry = {
+                    username: data.params.username,
+                    followers: data.params.followerCount,
+                    verified: data.params.isVerified,
+                    avatarUrl: data.params.profilePicUrl,
+                    _id: data.id,
+                    displayName: data.params.fullName
+                }
+                  , doc = new IgCache(entry);
+
+                client.publish('data:ig', `${taskId}::${JSON.stringify(entry)}`);
+                doc.save(err => err && console.log(err));
+                ready();
+            }).catch(() => {client.publish('data:ig', taskId);ready();});
+    });
 }
 
-function getIdByHandle(handle, taskId) {
-    API.Account.searchForUser(session, handle).then(user => {
-        const id = user.id;
-        console.log(`${handle} has id ${id}`);
-        client.publish('data:ig', `${taskId}::${id}`);
-        ready();
-    }).catch(() => {client.publish('data:ig', taskId);ready();});
+function getProfileByHandle(handle, taskId) {
+    IgCache.findOne({
+        username: handle
+    }).exec().then(data => {
+        if (data)
+            client.publish('data:ig', `${taskId}::${JSON.stringify(data)}`);
+        else
+            API.Account.searchForUser(session, handle).then(data => {
+                console.log(`${handle} has id ${data.id}`);
+                var entry = {
+                    username: data.params.username,
+                    followers: data.params.followerCount,
+                    verified: data.params.isVerified,
+                    avatarUrl: data.params.profilePicUrl,
+                    _id: data.id,
+                    displayName: data.params.fullName
+                }
+                  , doc = new IgCache(entry);
+                client.publish('data:ig', `${taskId}::${JSON.stringify(entry)}`);
+                doc.save(err => err && console.log(err));
+                ready();
+            }).catch(() => {client.publish('data:ig', taskId);ready();});
+    });
 }
 
 function getFollowers(id, cursor, taskId) {

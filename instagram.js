@@ -47,16 +47,12 @@ function getSnapshot(id) {
 }
 
 const test = () => {
-    Client.getIdByHandle('benorgera').then(id => {
-        getFollowers(id);
-    });
+    Client.getProfileByHandle('c0ffincvnt').then(console.log);
 };
 test();
 
 function getCumulativeSnapshot(profile) {
-    console.log('ohhhhh');
     return InstagramSnapshot.find({ _id: profile._id }).exec().then(snaps => {
-        console.log('yoooooo');
         var followers = [],
             engagements = [],
             followersSeen = '',
@@ -98,4 +94,4 @@ function getCumulativeSnapshot(profile) {
     });
 }
 
-module.exports = { getSnapshot, getIdByHandle: Client.getIdByHandle };
+module.exports = { getSnapshot, getProfileByHandle: Client.getProfileByHandle };

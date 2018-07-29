@@ -10,6 +10,7 @@ var tasks = new HashMap() //TASKID - { cb: resolve with data, at: time sent }
 
 //redis ordered set 'bots:ig' stores botids scored by time they last did a job
 redis.add_command('zpopmin');
+client.del('bots:ig');
 subscriber.subscribe('bot:ig');
 subscriber.subscribe('data:ig');
 
@@ -27,7 +28,7 @@ subscriber.on('message', (channel, message) => {
 
 //bots send update every 5 seconds
 //script removes dead bots every 2 seconds
-// setInterval(() => client.zremrangebyscore('bots:ig', 0, moment() - 6000), 2000);
+
 setInterval(() => {
 	bots.forEach((val, key) => {
 		if (val < moment() - 5300) {
@@ -127,7 +128,7 @@ function delegateTask(task, cb, staleTaskId) {
 	    tasks.set(taskId, taskData);
 	    client.publish('tasks:ig', taskId);
 	    console.log(`Task ${taskId} delegated`);
-	}).catch((er) => {setTimeout(() => delegateTask(task, cb), 5000);console.log(er);});
+	}).catch((er) => {setTimeout(() => delegateTask(task, cb), 1000);console.log(er);});
 }
 
 //taskId = BOTID:TASKCODE:ACCOUNTID/HANDLE:[CURSOR]
@@ -139,7 +140,7 @@ function getProfileById(id) {
     return taskPromise(`gp:${id}`);
 }
 
-function getIdByHandle(handle) {
+function getProfileByHandle(handle) {
 	return taskPromise(`gi:${handle}`);
 }
 
@@ -151,10 +152,10 @@ function getMedia(id, cursor) {
 	return taskPromise(`gm:${id}:${cursor || ' '}`);
 }
 
-const test = () => getIdByHandle('coltranetunes').then(id => {
+const test = () => getProfileByHandle('coltranetunes').then(id => {
 	console.log(`Got id ${id}`);
 	getProfileById(id).then(console.log);
 	getFollowers(id).then(console.log);
 });
 
-module.exports = { getProfileById, getIdByHandle, getFollowers, getMedia };
+module.exports = { getProfileById, getProfileByHandle, getFollowers, getMedia };
