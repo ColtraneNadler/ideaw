@@ -10,7 +10,8 @@ var redis = require('redis')
 const temp = require('./config').igAccounts
     , settings = temp[Math.floor(Math.random()*temp.length)]
     , pid = guid()
-    , moment = require('moment');
+    , moment = require('moment')
+    , fs = require('fs');
 
 settings.device = 'chrome';
 
@@ -41,39 +42,44 @@ var mongoPromise = new Promise((res, err) => {
         ready();
     };
 
-
-Promise.all([API.Session.create(new API.Device(settings.device), storage, settings.username, settings.password, settings.proxyURL || undefined), mongoPromise]).then(data => {
-
-    session = data[0];
-
-    console.log(`Client ${settings.username} With ID ${pid} Session Initialized`);
-    subscriber.on('message', (channel, message) => {
-	    var args = message.split(':');
-	    if (args.length < 3 || args[0] != pid)
-	    	return;
-
-      //taskId = BOTID:TASKCODE:ACCOUNTID/HANDLE:[CURSOR]
-	    unready();
-        console.log(`Executing Task: ${message}`);
-        switch (args[1]) {
-            case 'gp': //get profile
-                getProfileById(args[2], message);
-                break;
-            case 'gi': //get id
-                getProfileByHandle(args[2], message);
-                break;
-            case 'gf':
-                getFollowers(args[2], args[3] !== ' ' && args[3], message);
-                break;
-            case 'gm':
-                getMedia(args[2], args[3] !== ' ' && args[3], message);
-                break;
-        }
+(function start() {
+    Promise.all([API.Session.create(new API.Device(settings.device), storage, settings.username, settings.password, settings.proxyURL || undefined), mongoPromise]).then(data => {
+    
+        session = data[0];
+    
+        console.log(`Client ${settings.username} With ID ${pid} Session Initialized`);
+        subscriber.on('message', (channel, message) => {
+    	    var args = message.split(':');
+    	    if (args.length < 3 || args[0] != pid)
+    	    	return;
+    
+          //taskId = BOTID:TASKCODE:ACCOUNTID/HANDLE:[CURSOR]
+    	    unready();
+            console.log(`Executing Task: ${message}`);
+            switch (args[1]) {
+                case 'gp': //get profile
+                    getProfileById(args[2], message);
+                    break;
+                case 'gi': //get id
+                    getProfileByHandle(args[2], message);
+                    break;
+                case 'gf':
+                    getFollowers(args[2], args[3] !== ' ' && args[3], message);
+                    break;
+                case 'gm':
+                    getMedia(args[2], args[3] !== ' ' && args[3], message);
+                    break;
+            }
+        });
+    
+        subscriber.subscribe('tasks:ig');
+        ready();
+    }).catch(err => {
+        console.log(err && err.message);
+        fs.writeFileSync('./cookies/' + settings.username + '_cookies.json', '');
+        start();
     });
-
-    subscriber.subscribe('tasks:ig');
-    ready();
-});
+})();
 
 function getProfileById(id, taskId) {
     IgCache.findOne({
