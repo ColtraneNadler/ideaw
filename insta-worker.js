@@ -31,7 +31,15 @@ var mongoPromise = new Promise((res, err) => {
             interval.val = undefined;
         }
     }
-  , ready = () => interval.val = setInterval(() => client.publish('bot:ig', `${pid}:${lastTask}`), 5000);
+  , ready = () => interval.val = setInterval(() => {
+        client.publish('bot:ig', `${pid}:${lastTask}`);
+        console.log('Ready');
+    }, 5000)
+  , handleError = taskId => err => {
+        console.log(err && err.message);
+        client.publish('data:ig', taskId);
+        ready();
+    };
 
 
 Promise.all([API.Session.create(new API.Device(settings.device), storage, settings.username, settings.password, settings.proxyURL || undefined), mongoPromise]).then(data => {
@@ -71,11 +79,14 @@ function getProfileById(id, taskId) {
     IgCache.findOne({
         _id : id
     }).exec().then(data => {
-        if (data) 
+
+        if (data) {
+            console.log(`${id} Has ${data.followers} Followers`);
             client.publish('data:ig', `${taskId}::${JSON.stringify(data)}`);
-        else
+            ready();
+        } else
             API.Account.getById(session, id).then(data => {
-                console.log(`${id} Has ${data.followerCount} Followers`);
+                console.log(`${id} Has ${data.params.followerCount} Followers`);
                 var entry = {
                     username: data.params.username,
                     followers: data.params.followerCount,
@@ -89,17 +100,20 @@ function getProfileById(id, taskId) {
                 client.publish('data:ig', `${taskId}::${JSON.stringify(entry)}`);
                 doc.save(err => err && console.log(err));
                 ready();
-            }).catch(() => {client.publish('data:ig', taskId);ready();});
-    });
+            }).catch(handleError(taskId));
+    }).catch(handleError(taskId));
 }
 
 function getProfileByHandle(handle, taskId) {
     IgCache.findOne({
         username: handle
     }).exec().then(data => {
-        if (data)
+
+        if (data) {
+            console.log(`${handle} Has ${data.followers} Followers`);
             client.publish('data:ig', `${taskId}::${JSON.stringify(data)}`);
-        else
+            ready();
+        } else
             API.Account.searchForUser(session, handle).then(data => {
                 console.log(`${handle} has id ${data.id}`);
                 var entry = {
@@ -114,8 +128,8 @@ function getProfileByHandle(handle, taskId) {
                 client.publish('data:ig', `${taskId}::${JSON.stringify(entry)}`);
                 doc.save(err => err && console.log(err));
                 ready();
-            }).catch(() => {client.publish('data:ig', taskId);ready();});
-    });
+            }).catch(handleError(taskId));
+    }).catch(handleError(taskId));
 }
 
 function getFollowers(id, cursor, taskId) {
@@ -141,17 +155,13 @@ function getFollowers(id, cursor, taskId) {
 
         console.log(`Loaded ${arr.length} Followers of ${id}`);
         ready();
-    }).catch((err) => {
-        console.log(err && err.message);
-        client.publish('data:ig', taskId);
-        ready();
-    });
+    }).catch(handleError(taskId));
 }
 
 function getMedia(id, cursor, taskId) {
-    const feed = API.Feed.UserMedia.get(session, id, 10);
-    feed.cursor = cursor;
-    feed.get().then(data => client.publish('data:ig', `${taskId}::${JSON.stringify(data)}`));
+    const feed = new API.Feed.UserMedia(session, id, 10);
+    if (cursor) feed.cursor = cursor;
+    feed.get().then(data => client.publish('data:ig', `${taskId}::${JSON.stringify(data)}`)).catch(handleError(taskId));
 }
 
 function guid() {
