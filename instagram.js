@@ -47,7 +47,8 @@ function getSnapshot(id) {
 }
 
 const test = () => {
-    Client.getProfileByHandle('c0ffincvnt').then(console.log);
+    getFollowers('c0ffincvnt').then(console.log);
+    // Client.getProfileByHandle('c0ffincvnt').then(console.log);
 };
 test();
 

@@ -38,14 +38,15 @@ Promise.all([API.Session.create(new API.Device(settings.device), storage, settin
 
     session = data[0];
 
-    console.log(`Client ${settings.username} Session Initialized`);
+    console.log(`Client ${settings.username} With ID ${pid} Session Initialized`);
     subscriber.on('message', (channel, message) => {
 	    var args = message.split(':');
-	    if (args.length < 3 || args[0] !== pid)
+	    if (args.length < 3 || args[0] != pid)
 	    	return;
 
       //taskId = BOTID:TASKCODE:ACCOUNTID/HANDLE:[CURSOR]
 	    unready();
+        console.log(`Executing Task: ${message}`);
         switch (args[1]) {
             case 'gp': //get profile
                 getProfileById(args[2], message);
@@ -121,6 +122,7 @@ function getFollowers(id, cursor, taskId) {
     const feed = new API.Feed.AccountFollowers(session, id);
     if (cursor) feed.cursor = cursor;
     feed.get().then(followers => {
+        console.log('got feed');
         var arr = followers.map(cur => {
             cur = cur._params;
             return {
@@ -139,7 +141,11 @@ function getFollowers(id, cursor, taskId) {
 
         console.log(`Loaded ${arr.length} Followers of ${id}`);
         ready();
-    }).catch(() => {client.publish('data:ig', taskId);ready();});
+    }).catch((err) => {
+        console.log(err && err.message);
+        client.publish('data:ig', taskId);
+        ready();
+    });
 }
 
 function getMedia(id, cursor, taskId) {
