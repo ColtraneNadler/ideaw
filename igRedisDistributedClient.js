@@ -3,93 +3,100 @@ const redis = require('redis')
   , subscriber = redis.createClient()
   , utils = require('./redisProtocolUtils')
   , moment = require('moment')
+  , mongoose = require('mongoose')
   , HashMap = require('hashmap')
   , InstaWorker = require('./models/InstaWorker');
 
 var tasks = new HashMap() //TASKID - { cb: resolve with data, at: time sent }
-  , bots = new HashMap(); //BOTID - { at: TIMEPINGED, username }
-  , accounts = new HashMap(); //USERNAME - { username, password, proxyURL?, device? }
+  , bots = new HashMap() //BOTID - { at: TIMEPINGED, username }
+  , accounts = new HashMap() //USERNAME - { username, password, proxyURL?, device? }
+  , ready = false;
 
-
-(new Promise((res, err) => {
-	mongoose.connect('mongodb://cole:test123@ds129560.mlab.com:29560/clouthack', error => {
-    	if (error)
-    		return err(error);
+(function start() {
+    (new Promise((res, err) => {
+    	mongoose.connect('mongodb://cole:test123@ds129560.mlab.com:29560/clouthack', error => {
+        	if (error)
+        		return err(error);
+        
+        	res(console.log('Connected to Mongo'));
+        });
+    })).then(() => InstaWorker.find({}).exec().then(arr => {
+    	console.log(`DB Has ${arr.length} Accounts`);
     
-    	res(console.log('Connected to Mongo'));
-    });
-})).then(() => InstaWorker.find({}).exec().then(arr => {
-	console.log(`DB Has ${arr.length} Accounts`);
-
-	//redis ordered set 'bots:ig' stores botids scored by time they last did a job
-    redis.add_command('zpopmin');
-    client.del('bots:ig');
-    client.del('accounts:ig');
-    client.del('usedaccounts:ig');
-    subscriber.subscribe('bot:ig');
-    subscriber.subscribe('data:ig');
-
-    //redis set accounts:ig stores accounts available to new bots
-    for (var i = 0; i < arr.length; i++) {
-    	const acct = JSON.stringify(arr[i]);
-    	accounts.set(acct.username, acct);
-		client.sadd('accounts:ig', acct);
-    }
-
-    subscriber.on('message', (channel, message) => {
-    	switch (channel) {
-    		case 'bot:ig':
-    		    const [ botId, lastTask, username ] = utils.split(message, ':', 3);
-    		    addBot(botId, lastTask, username).catch(console.log);
-    		    break;
-    		case 'data:ig':
-    		    callbackWithData(message);
-    		    break;
-    	}
-    });
+    	//redis ordered set 'bots:ig' stores botids scored by time they last did a job
+        redis.add_command('zpopmin');
+        client.del('bots:ig');
+        client.del('accounts:ig');
+        client.del('usedaccounts:ig');
+        subscriber.subscribe('bot:ig');
+        subscriber.subscribe('data:ig');
     
-    //checks for stale tasks every 2 seconds, which are considered stale after 5
-    setInterval(() => {
-    	tasks.forEach((val, taskId) => {
-    		if (val.at < moment() - 5000 && !val.staleTaskId) {
-    			const task = utils.split(taskId, ':', 2)[1];
-    			console.log(`Stale task ${task}, redelegating`);
-    			val.isStale = true;
-    			delegateTask(task, val.cb, taskId);
-    		}
-    	});
-    }, 2000);
-
-    //bots send update every 5 seconds, and are given 1 second of leeway
-    //script checks for dead bots every 5 seconds
-    setInterval(() => {
-    	bots.forEach((val, key) => {
-    		if (val.at < moment() - 6000) {
-    			client.smove('usedaccounts:ig', 'accounts:ig', accounts.get(val.username), (err, res) => {
-    				if (err)
-    					console.error(err.message);
-    				else if (!res)
-    					console.error('Dead Bot Not A Used Account?');
-    				else {
-    					console.log(`Bot ${key} Not Responsive, Reclaiming Account`);
-    			        client.zrem('bots:ig', key);
-    			        //botId is set in bots iff their username is in usedaccounts:ig
-    			        bots.delete(key);
-    				}
-    			});
-    		}
-    	});
-    }, 5000);
+        //redis set accounts:ig stores accounts available to new bots
+        for (var i = 0; i < arr.length; i++) {
+        	const acct = JSON.stringify(arr[i]);
+        	accounts.set(acct.username, acct);
+    		client.sadd('accounts:ig', acct);
+        }
     
-    //actually delete the stale tasks every minute
-    //(don't initially delete because they could still callback with data)
-    setInterval(() => {
-    	tasks.forEach((val, key) => {
-    		if (val.isStale && val.at < moment() - 10000)
-    			tasks.delete(key);
-    	});
-    }, 60000);
-});
+        subscriber.on('message', (channel, message) => {
+        	switch (channel) {
+        		case 'bot:ig':
+        		    const [ botId, lastTask, username ] = utils.split(message, ':', 3);
+        		    addBot(botId, lastTask, username).catch(console.log);
+        		    break;
+        		case 'data:ig':
+        		    callbackWithData(message);
+        		    break;
+        	}
+        });
+        
+        //checks for stale tasks every 2 seconds, which are considered stale after 5
+        setInterval(() => {
+        	tasks.forEach((val, taskId) => {
+        		if (val.at < moment() - 5000 && !val.staleTaskId) {
+        			const task = utils.split(taskId, ':', 2)[1];
+                    val.isStale = true;
+        			console.log(`Redelegating Stale Task ${task}`);
+        			delegateTask(task, val.cb, taskId);
+        		}
+        	});
+        }, 2000);
+    
+        //bots send update every 5 seconds, and are given 1 second of leeway
+        //script checks for dead bots every 5 seconds
+        setInterval(() => {
+        	bots.forEach((val, key) => {
+        		if (val.at < moment() - 6000) {
+        			client.smove('usedaccounts:ig', 'accounts:ig', accounts.get(val.username), (err, res) => {
+        				if (err)
+        					console.error(err.message);
+        				else if (!res)
+        					console.error('Dead Bot Not A Used Account?');
+        				else {
+        					console.log(`Bot ${key} Not Responsive, Reclaiming Account`);
+        			        client.zrem('bots:ig', key);
+        			        //botId is set in bots iff their username is in usedaccounts:ig
+        			        bots.delete(key);
+        				}
+        			});
+        		}
+        	});
+        }, 5000);
+        
+        //actually delete the stale tasks every minute
+        //(don't initially delete because they could still callback with data)
+        setInterval(() => {
+        	tasks.forEach((val, key) => {
+        		if (val.isStale && val.at < moment() - 10000)
+        			tasks.delete(key);
+        	});
+        }, 60000);
+        ready = true;
+    })).catch(() => {
+        console.log('Startup Error, Retrying');
+        start();
+    })
+})();
 
 
 function callbackWithData(message) {
@@ -102,12 +109,12 @@ function callbackWithData(message) {
           task = tasks.get(taskId);
     if (task) {
     	task.cb(JSON.parse(data));
-    	console.log(`Task ${taskId} completed`);
+    	console.log(`Task ${taskId} Completed`);
     	tasks.delete(taskId);
     	if (task.staleTaskId)
     		deleteStaleTasks(staleTaskId);
     } else
-        console.log(`Task ${taskId} not found`);
+        console.log(`Task ${taskId} Not Found`);
 }
 
 function deleteStaleTasks(id) {
@@ -148,13 +155,15 @@ function addBot(botId, lastTask, username) {
 
 function getBot() {
 	return new Promise((res, err) => {
+        if (!ready)
+            return err('Not Ready, Waiting');
 		client.zpopmin('bots:ig', (er, rs) => {
 			if (er)
 				return err(er);
 			else if (rs.length < 2)
-				return err('No available bots, waiting');
+				return err('No Available Bots, Waiting');
 			rs = rs[0];
-			console.log(`Got bot ${rs}`);
+			console.log(`Got Bot ${rs}`);
 			res(rs);
 		});
 	});
@@ -169,8 +178,8 @@ function delegateTask(task, cb, staleTaskId) {
 
 	    tasks.set(taskId, taskData);
 	    client.publish('tasks:ig', taskId);
-	    console.log(`Task ${taskId} delegated`);
-	}).catch((er) => {setTimeout(() => delegateTask(task, cb), 1000);console.log(er);});
+	    console.log(`Task ${taskId} Delegated`);
+	}).catch(er => {setTimeout(() => delegateTask(task, cb), 1000);console.log(er);});
 }
 
 //taskId = BOTID:TASKCODE:ACCOUNTID/HANDLE:[CURSOR]

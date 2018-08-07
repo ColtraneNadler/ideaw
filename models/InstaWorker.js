@@ -14,4 +14,4 @@ instaWorkerSchema.pre('save', function save(next) {
 	next();
 });
 
-module.exports = mongoose.model('InstaWorker', instagramCacheSchema);
+module.exports = mongoose.model('InstaWorker', instaWorkerSchema);

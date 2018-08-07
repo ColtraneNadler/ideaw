@@ -34,7 +34,7 @@ var mongoPromise = () => new Promise((res, err) => {
             console.log(`Got Account ${rs.username}`);
             res(rs);
         });
-}), storage = (username) => new API.CookieFileStorage('./cookies/' + username + '_cookies.json')
+}), storage = () => new API.CookieFileStorage(`./cookies/${account.username}_cookies.json`)
   , lastTask = +moment()
   , interval = {}
   , unready = () => {
@@ -56,13 +56,14 @@ var mongoPromise = () => new Promise((res, err) => {
 
 (function start() {
     accountPromise().then(acct => {
-        return API.Session.create(new API.Device(acct.device || 'chrome'), storage(acct.username), acct.username, acct.password, acct.proxyURL || undefined).then(sesh => {
+        account = acct;
+        return API.Session.create(new API.Device(acct.device || 'chrome'), storage(), acct.username, acct.password, acct.proxyURL || undefined).then(sesh => {
             session = sesh;
 
             console.log(`Client ${acct.username} Session Initialized`);
             subscriber.on('message', (channel, message) => {
                 var args = message.split(':');
-                if (args.length < 3 || args[0] != pid)
+                if (args.length < 3 || args[0] !== pid)
                     return;
         
               //taskId = BOTID:TASKCODE:ACCOUNTID/HANDLE:[CURSOR]
@@ -84,13 +85,12 @@ var mongoPromise = () => new Promise((res, err) => {
                 }
             });
 
-            account = acct;
             subscriber.subscribe('tasks:ig');
             ready();
         });
     }).catch(err => {
         console.log(err && err.message);
-        fs.writeFileSync('./cookies/' + settings.username + '_cookies.json', '');
+        fs.writeFileSync(`./cookies/${account.username}_cookies.json`, '');
         start();
     });
 })();
