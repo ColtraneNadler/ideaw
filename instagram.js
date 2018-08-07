@@ -18,11 +18,13 @@ function getFeed(nextGivenCursor) {
         function recurse(data) {
             const { arr, cursor } = data;
             feed.push(...arr);
-            console.log(feed);
-            if (cursor)
+            if (cursor) {
+                console.log(`Have ${feed.length} of Feed`);
                 nextGivenCursor(cursor).then(recurse, err);
-            else
+            } else {
+                console.log('Got Entire Feed');
                 res(feed);
+            }
         }
 
         nextGivenCursor().then(recurse, err);

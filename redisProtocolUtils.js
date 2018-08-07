@@ -1,4 +1,5 @@
-// @requires string contains limit occurences of sub && limit > 0
+// @requires string contains limit - 1 occurences of sub && limit > 0
+// @ensures \result.length === limit
 function split(string, sub, limit) {
     const len = sub.length;
     return (function splitHelper (string, sub, limit, acc) {

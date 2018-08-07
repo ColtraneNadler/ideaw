@@ -8,7 +8,8 @@ let instagramCacheSchema = new Schema({
 	displayName: String,
 	verified: Boolean,
 	avatarUrl: String,
-	followers: Number
+	followers: Number,
+	createdAt: Number
 });
 
 instagramCacheSchema.pre('save', function save(next) {
